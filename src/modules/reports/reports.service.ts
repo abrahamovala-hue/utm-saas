@@ -1,6 +1,6 @@
 import { reportsRepository } from "./reports.repository";
 import { projectsService } from "@/modules/projects/projects.service";
-import { fetchMetaSpend } from "@/lib/meta-ads";
+import { fetchMetaSpend, fetchMetaCampaignSpend } from "@/lib/meta-ads";
 
 // ============================================================
 // RELATÓRIO DENSO — todas as métricas do painel.
@@ -53,10 +53,11 @@ export const reportsService = {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const [clicks, allConversions, metaSpend] = await Promise.all([
+    const [clicks, allConversions, metaSpend, campaignSpend] = await Promise.all([
       reportsRepository.findClicksSince(projectId, since),
       reportsRepository.findConversionsSince(projectId, since),
       fetchMetaSpend(days),
+      fetchMetaCampaignSpend(days),
     ]);
 
     // Lista de produtos disponíveis (para o filtro) — antes de filtrar
@@ -206,13 +207,49 @@ export const reportsService = {
       bucket.conversions++;
       bucket.revenue += Number(conv.value ?? 0);
     }
+    // Gasto do Meta entra por nome de campanha (match case-insensitive).
+    // Campanhas com gasto mas sem cliques rastreados também aparecem —
+    // é assim que você enxerga verba rodando SEM link rastreável.
+    const spendByName = new Map(
+      (campaignSpend ?? []).map((c) => [c.name.toLowerCase(), c])
+    );
+    const matchedNames = new Set<string>();
+
     const byCampaign = Array.from(campaigns.entries())
-      .map(([name, s]) => ({
-        name,
-        ...s,
-        conversionRate: s.clicks > 0 ? s.conversions / s.clicks : null,
-      }))
-      .sort((a, b) => b.revenue - a.revenue || b.clicks - a.clicks);
+      .map(([name, s]) => {
+        const meta = spendByName.get(name.toLowerCase());
+        if (meta) matchedNames.add(name.toLowerCase());
+        const spent = meta?.spend ?? null;
+        const profitRow = spent !== null ? s.revenue - spent : null;
+        return {
+          name,
+          ...s,
+          conversionRate: s.clicks > 0 ? s.conversions / s.clicks : null,
+          spend: spent,
+          roas: spent && spent > 0 ? s.revenue / spent : null,
+          profit: profitRow,
+        };
+      });
+
+    // Campanhas do Meta que gastaram mas não têm nenhum clique rastreado
+    for (const c of campaignSpend ?? []) {
+      if (!matchedNames.has(c.name.toLowerCase()) && c.spend > 0) {
+        byCampaign.push({
+          name: c.name,
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
+          conversionRate: null,
+          spend: c.spend,
+          roas: 0,
+          profit: -c.spend,
+        });
+      }
+    }
+
+    byCampaign.sort(
+      (a, b) => b.revenue - a.revenue || (b.spend ?? 0) - (a.spend ?? 0)
+    );
 
     return {
       project: { name: project.name, currency: project.currency, timezone: tz },

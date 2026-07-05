@@ -441,15 +441,17 @@ export default async function ReportPage({ params, searchParams }: Props) {
               <tr className="border-b border-night-line text-left text-[11px] uppercase tracking-[0.12em] text-night-faint">
                 <th className="px-5 py-3 font-medium">Campanha</th>
                 <th className="px-5 py-3 text-right font-medium">Cliques</th>
-                <th className="px-5 py-3 text-right font-medium">Conversões</th>
-                <th className="px-5 py-3 text-right font-medium">Taxa</th>
+                <th className="px-5 py-3 text-right font-medium">Conv.</th>
+                <th className="px-5 py-3 text-right font-medium">Gasto</th>
                 <th className="px-5 py-3 text-right font-medium">Receita</th>
+                <th className="px-5 py-3 text-right font-medium">ROAS</th>
+                <th className="px-5 py-3 text-right font-medium">Lucro</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-night-line">
               {byCampaign.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-night-faint">
+                  <td colSpan={7} className="px-5 py-8 text-center text-night-faint">
                     Sem dados no período
                   </td>
                 </tr>
@@ -473,10 +475,24 @@ export default async function ReportPage({ params, searchParams }: Props) {
                       {c.conversions.toLocaleString("pt-BR")}
                     </td>
                     <td className="px-5 py-3 text-right text-night-soft">
-                      {pct(c.conversionRate)}
+                      {money(c.spend, cur)}
                     </td>
                     <td className="px-5 py-3 text-right font-display font-medium text-night-green">
                       {money(c.revenue, cur)}
+                    </td>
+                    <td className="px-5 py-3 text-right text-night-soft">
+                      {ratio(c.roas)}
+                    </td>
+                    <td
+                      className={`px-5 py-3 text-right font-display font-medium ${
+                        c.profit === null
+                          ? "text-night-faint"
+                          : c.profit >= 0
+                            ? "text-night-green"
+                            : "text-night-red"
+                      }`}
+                    >
+                      {money(c.profit, cur)}
                     </td>
                   </tr>
                 ))

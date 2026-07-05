@@ -62,3 +62,47 @@ export async function fetchMetaSpend(days: 7 | 30): Promise<MetaSpend | null> {
     return null;
   }
 }
+
+// ------------------------------------------------------------
+// Gasto POR CAMPANHA — para a tabela de lucro por campanha.
+// O nome da campanha do Meta casa com o utm_campaign dos cliques
+// quando os anúncios usam o macro {{campaign.name}}.
+// ------------------------------------------------------------
+
+export type CampaignSpend = { name: string; spend: number };
+
+export async function fetchMetaCampaignSpend(
+  days: 7 | 30
+): Promise<CampaignSpend[] | null> {
+  const token = process.env.META_ACCESS_TOKEN;
+  const accountId = process.env.META_AD_ACCOUNT_ID;
+  if (!token || !accountId) return null;
+
+  const preset = days === 30 ? "last_30d" : "last_7d";
+  const account = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+
+  const url =
+    `https://graph.facebook.com/${GRAPH_VERSION}/${account}/insights` +
+    `?fields=spend,campaign_name&level=campaign&date_preset=${preset}` +
+    `&limit=200&access_token=${encodeURIComponent(token)}`;
+
+  try {
+    const res = await fetch(url, { next: { revalidate: 300 } });
+    if (!res.ok) {
+      console.error("[meta-ads:campaigns]", res.status, await res.text());
+      return null;
+    }
+    const json = (await res.json()) as {
+      data?: Array<{ campaign_name?: string; spend?: string }>;
+    };
+    return (json.data ?? [])
+      .filter((r) => r.campaign_name)
+      .map((r) => ({
+        name: r.campaign_name as string,
+        spend: Number(r.spend ?? 0),
+      }));
+  } catch (err) {
+    console.error("[meta-ads:campaigns]", err);
+    return null;
+  }
+}
