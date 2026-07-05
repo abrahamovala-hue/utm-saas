@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
 // Camada de dados dos relatórios.
-// NOTA DE ESCALA: no MVP agregamos em memória (volumes pequenos).
-// Quando o volume crescer, a tabela daily_stats (já criada na Fase 0)
-// assume via agregação incremental — sem mudar nenhuma interface daqui.
+// NOTA DE ESCALA: agregação em memória no MVP; daily_stats assume depois.
 
 export const reportsRepository = {
   findClicksSince(projectId: string, since: Date) {
@@ -12,7 +10,7 @@ export const reportsRepository = {
       select: {
         clickedAt: true,
         utmLinkId: true,
-        utmLink: { select: { utmCampaign: true } },
+        utmLink: { select: { utmCampaign: true, utmSource: true } },
       },
     });
   },
@@ -24,8 +22,11 @@ export const reportsRepository = {
         convertedAt: true,
         status: true,
         value: true,
+        metadata: true,
         click: {
-          select: { utmLink: { select: { utmCampaign: true } } },
+          select: {
+            utmLink: { select: { utmCampaign: true, utmSource: true } },
+          },
         },
       },
     });

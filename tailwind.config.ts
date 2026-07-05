@@ -51,6 +51,21 @@ const config: Config = {
           50: "#F9F1DF",
           700: "#8A6215",
         },
+
+        // Tema escuro — exclusivo da página de relatório
+        night: {
+          bg: "#0D1320",
+          panel: "#151C2C",
+          raised: "#1B2436",
+          line: "#232C40",
+          text: "#E8EBF2",
+          soft: "#A7AEBF",
+          faint: "#6E7689",
+          green: "#34C98E",
+          red: "#F0616D",
+          blue: "#5B8DEF",
+          gold: "#D6B36A",
+        },
       },
       fontFamily: {
         display: ["var(--font-display)", "Georgia", "serif"],
