@@ -1,0 +1,295 @@
+// ============================================================
+// UTM SaaS — Schema do Banco de Dados
+// PostgreSQL + Prisma ORM
+//
+// Convenções:
+// - Nomes de tabelas em snake_case via @@map (padrão PostgreSQL)
+// - Tabelas de alto volume (clicks, events) usam BigInt e são
+//   append-only (sem updatedAt)
+// - IPs nunca são armazenados em texto puro (ipHash) — LGPD/GDPR
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum Plan {
+  FREE
+  PRO
+  SCALE
+}
+
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum LinkStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum ConversionStatus {
+  PENDING
+  APPROVED
+  REFUNDED
+  REJECTED
+}
+
+// ------------------------------------------------------------
+// USUÁRIOS E MULTI-TENANCY
+// ------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String?   @map("password_hash") // nullable: usuários OAuth não têm senha
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  plan          Plan      @default(FREE)
+  locale        String    @default("pt") // pt | en — produto bilíngue
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  memberships  ProjectMember[]
+  activityLogs ActivityLog[]
+
+  @@map("users")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String? // domínio do cliente, para validação de origem (fase pós-MVP)
+  timezone  String   @default("America/Sao_Paulo") // crucial p/ relatórios corretos
+  currency  String   @default("BRL") // BRL | ILS | USD ...
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members      ProjectMember[]
+  apiKeys      ApiKey[]
+  campaigns    Campaign[]
+  utmLinks     UtmLink[]
+  clicks       Click[]
+  conversions  Conversion[]
+  events       Event[]
+  activityLogs ActivityLog[]
+  dailyStats   DailyStat[]
+
+  @@map("projects")
+}
+
+// Relação usuário<->projeto separada desde o dia 1:
+// no MVP todo projeto tem 1 OWNER, mas isso permite adicionar
+// times/colaboradores no futuro sem nenhuma migração dolorosa.
+model ProjectMember {
+  id        String      @id @default(cuid())
+  userId    String      @map("user_id")
+  projectId String      @map("project_id")
+  role      ProjectRole @default(OWNER)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+// ------------------------------------------------------------
+// API KEYS — autenticação da API pública de conversões
+// ------------------------------------------------------------
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  projectId  String    @map("project_id")
+  name       String // ex: "Webhook Kiwify"
+  keyHash    String    @unique @map("key_hash") // SHA-256 da chave; nunca em texto puro
+  keyPrefix  String    @map("key_prefix") // primeiros 8 chars visíveis: "utm_a1b2..."
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("api_keys")
+}
+
+// ------------------------------------------------------------
+// CAMPANHAS E LINKS UTM
+// ------------------------------------------------------------
+
+model Campaign {
+  id        String         @id @default(cuid())
+  projectId String         @map("project_id")
+  name      String
+  source    String? // facebook | google | tiktok | email ...
+  status    CampaignStatus @default(ACTIVE)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  utmLinks UtmLink[]
+
+  @@index([projectId])
+  @@map("campaigns")
+}
+
+model UtmLink {
+  id             String     @id @default(cuid())
+  projectId      String     @map("project_id")
+  campaignId     String?    @map("campaign_id")
+  slug           String     @unique // código curto do redirect: /r/[slug]
+  destinationUrl String     @map("destination_url")
+  utmSource      String     @map("utm_source")
+  utmMedium      String     @map("utm_medium")
+  utmCampaign    String     @map("utm_campaign")
+  utmTerm        String?    @map("utm_term")
+  utmContent     String?    @map("utm_content")
+  status         LinkStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  project  Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  campaign Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  clicks   Click[]
+  dailyStats DailyStat[]
+
+  @@index([projectId])
+  @@index([campaignId])
+  @@map("utm_links")
+}
+
+// ------------------------------------------------------------
+// TRACKING — alto volume, append-only
+// ------------------------------------------------------------
+
+model Click {
+  id         BigInt   @id @default(autoincrement())
+  utmLinkId  String   @map("utm_link_id")
+  projectId  String   @map("project_id") // desnormalizado de propósito: relatórios sem JOIN duplo
+  visitorId  String   @map("visitor_id") // UUID persistido em cookie first-party
+  ipHash     String?  @map("ip_hash") // hash SHA-256 do IP — nunca IP puro (LGPD)
+  userAgent  String?  @map("user_agent")
+  deviceType String?  @map("device_type") // mobile | desktop | tablet
+  os         String?
+  browser    String?
+  country    String?
+  referer    String?
+  isBot      Boolean  @default(false) @map("is_bot") // filtro de crawlers/bots
+  clickedAt  DateTime @default(now()) @map("clicked_at")
+
+  utmLink UtmLink @relation(fields: [utmLinkId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  conversions Conversion[]
+
+  @@index([projectId, clickedAt])
+  @@index([utmLinkId, clickedAt])
+  @@index([visitorId])
+  @@map("clicks")
+}
+
+model Conversion {
+  id          String           @id @default(cuid())
+  projectId   String           @map("project_id")
+  clickId     BigInt?          @map("click_id") // nullable: conversões não atribuídas existem e são reportadas com honestidade
+  visitorId   String?          @map("visitor_id")
+  externalId  String?          @map("external_id") // ID do pedido no Kiwify/checkout — base da deduplicação
+  eventName   String           @default("purchase") @map("event_name") // purchase | lead | signup
+  value       Decimal?         @db.Decimal(12, 2)
+  currency    String           @default("BRL")
+  status      ConversionStatus @default(APPROVED)
+  metadata    Json? // payload bruto do webhook, para auditoria/debug
+  convertedAt DateTime         @default(now()) @map("converted_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  click   Click?  @relation(fields: [clickId], references: [id], onDelete: SetNull)
+
+  // Deduplicação nativa: o mesmo pedido nunca entra 2x no mesmo projeto
+  @@unique([projectId, externalId])
+  @@index([projectId, convertedAt])
+  @@index([visitorId])
+  @@map("conversions")
+}
+
+// Eventos customizados (page_view, add_to_cart, initiate_checkout...)
+// Criada agora, uso mínimo no MVP; vira a base do funil completo na fase 2.
+model Event {
+  id         BigInt   @id @default(autoincrement())
+  projectId  String   @map("project_id")
+  visitorId  String?  @map("visitor_id")
+  eventName  String   @map("event_name")
+  properties Json?
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, occurredAt])
+  @@index([visitorId])
+  @@map("events")
+}
+
+// ------------------------------------------------------------
+// AGREGAÇÕES E AUDITORIA
+// ------------------------------------------------------------
+
+// Estatísticas diárias pré-computadas.
+// No MVP os relatórios calculam on-the-fly; esta tabela já existe
+// para ativarmos agregação incremental na fase 2 sem migração.
+model DailyStat {
+  id               String   @id @default(cuid())
+  projectId        String   @map("project_id")
+  utmLinkId        String?  @map("utm_link_id") // null = agregado do projeto inteiro
+  date             DateTime @db.Date
+  clicksCount      Int      @default(0) @map("clicks_count")
+  conversionsCount Int      @default(0) @map("conversions_count")
+  revenue          Decimal  @default(0) @db.Decimal(14, 2)
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  utmLink UtmLink? @relation(fields: [utmLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, utmLinkId, date])
+  @@index([projectId, date])
+  @@map("daily_stats")
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  projectId  String?  @map("project_id")
+  action     String // ex: "link.created", "api_key.revoked"
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipHash     String?  @map("ip_hash")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+  @@map("activity_logs")
+}
