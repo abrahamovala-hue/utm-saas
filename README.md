@@ -55,3 +55,5 @@ src/
 - [x] **Fase 4** — Dashboard e relatórios: métricas, gráfico diário, quebra por campanha
 - [x] **Fase 5a** — Design premium "Ateliê de dados": tokens, tipografia Fraunces+Figtree, shell com sidebar
 - [ ] **Fase 5b** — Polimento: rate limiting, onboarding
+
+<!-- deploy automatico ativo -->
