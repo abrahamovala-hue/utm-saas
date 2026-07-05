@@ -361,44 +361,77 @@ export default async function ReportPage({ params, searchParams }: Props) {
           </div>
         </div>
 
-        {/* Evolução diária */}
+        {/* Evolução diária — Receita vs Gasto */}
         <div className="mt-5 rounded-xl border border-night-line bg-night-panel p-5">
           <h3 className="text-sm font-semibold text-night-text">
-            Evolução diária{" "}
+            Receita vs Gasto por dia{" "}
             <span className="ml-2 text-[11px] font-normal text-night-faint">
               {totals.clicks} cliques · {totals.conversions} conversões · taxa{" "}
               {pct(totals.conversionRate)}
               {totals.unattributed > 0 && ` · ${totals.unattributed} não atribuída(s)`}
             </span>
           </h3>
-          <div className="mt-4 flex h-36 items-end gap-1">
-            {daily.map((day) => (
-              <div
-                key={day.date}
-                className="group relative flex flex-1 flex-col items-center justify-end gap-1"
-                title={`${day.date}: ${day.clicks} cliques, ${day.conversions} conversões`}
-              >
-                {day.conversions > 0 && (
-                  <div className="h-1.5 w-full max-w-6 rounded-full bg-night-green" />
-                )}
-                <div
-                  className="w-full max-w-6 rounded-t bg-night-blue/80 transition-colors duration-200 group-hover:bg-night-blue"
-                  style={{
-                    height: `${Math.max((day.clicks / maxClicks) * 100, day.clicks > 0 ? 4 : 0)}%`,
-                  }}
-                />
-                <div className="pointer-events-none absolute -top-9 hidden whitespace-nowrap rounded-lg bg-night-raised px-2.5 py-1.5 text-xs text-night-text ring-1 ring-night-line group-hover:block">
-                  {day.clicks} cliques · {day.conversions} conv.
+          {(() => {
+            const maxDaily = Math.max(
+              ...daily.map((d) => Math.max(d.revenue, d.spend)),
+              1
+            );
+            const h = (v: number) =>
+              `${Math.max((v / maxDaily) * 100, v > 0 ? 3 : 0)}%`;
+            return (
+              <>
+                <div className="mt-4 flex h-40 items-end gap-1.5">
+                  {daily.map((day) => {
+                    const dayProfit = day.revenue - day.spend;
+                    return (
+                      <div
+                        key={day.date}
+                        className="group relative flex flex-1 items-end justify-center gap-0.5"
+                        title={`${day.date}`}
+                      >
+                        <div
+                          className="w-1/2 max-w-4 rounded-t bg-night-green/90 transition-colors duration-200 group-hover:bg-night-green"
+                          style={{ height: h(day.revenue) }}
+                        />
+                        <div
+                          className="w-1/2 max-w-4 rounded-t bg-night-blue/70 transition-colors duration-200 group-hover:bg-night-blue"
+                          style={{ height: h(day.spend) }}
+                        />
+                        <div className="pointer-events-none absolute -top-16 z-10 hidden whitespace-nowrap rounded-lg bg-night-raised px-2.5 py-1.5 text-xs text-night-text ring-1 ring-night-line group-hover:block">
+                          <span className="text-night-green">
+                            {money(day.revenue, cur)}
+                          </span>{" "}
+                          · <span className="text-night-blue">{money(day.spend, cur)}</span>
+                          <br />
+                          <span className={dayProfit >= 0 ? "text-night-green" : "text-night-red"}>
+                            {dayProfit >= 0 ? "+" : ""}
+                            {money(dayProfit, cur)}
+                          </span>{" "}
+                          · {day.clicks} cliques · {day.conversions} conv.
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 flex justify-between text-[11px] text-night-faint">
-            <span>{daily[0]?.date.split("-").reverse().slice(0, 2).join("/")}</span>
-            <span>
-              {daily[daily.length - 1]?.date.split("-").reverse().slice(0, 2).join("/")}
-            </span>
-          </div>
+                <div className="mt-2 flex justify-between text-[11px] text-night-faint">
+                  <span>{daily[0]?.date.split("-").reverse().slice(0, 2).join("/")}</span>
+                  <span>
+                    {daily[daily.length - 1]?.date.split("-").reverse().slice(0, 2).join("/")}
+                  </span>
+                </div>
+                <div className="mt-3 flex gap-5 text-xs text-night-soft">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-sm bg-night-green" aria-hidden />
+                    Receita (Kiwify)
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-sm bg-night-blue" aria-hidden />
+                    Gasto (Meta)
+                  </span>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Por campanha */}

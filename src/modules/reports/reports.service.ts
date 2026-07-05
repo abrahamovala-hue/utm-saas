@@ -183,9 +183,14 @@ export const reportsService = {
         bucket.revenue += Number(conv.value ?? 0);
       }
     }
+    // Gasto diário do Meta entra na mesma série (match por data)
+    const spendByDate = new Map(
+      (metaSpend?.daily ?? []).map((d) => [d.date, d.spend])
+    );
     const daily = Array.from(byDay.entries()).map(([date, stats]) => ({
       date,
       ...stats,
+      spend: spendByDate.get(date) ?? 0,
     }));
 
     // --- Por campanha ---
